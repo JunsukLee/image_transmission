@@ -141,8 +141,8 @@ cv::Mat stringToMat(std::string str)
 		cv::namedWindow("SERVER_Video", CV_WINDOW_AUTOSIZE);
 		imshow("SERVER_Video", image);
 		std::cin >> a;
-		if(a == 0)
-			break;
+//		if(a == 0)
+//			break;
 	}
 
 	//std::copy(str.begin(), str.end(), std::back_inserter(in));	

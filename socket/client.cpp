@@ -65,13 +65,13 @@ int   main( int argc, char **argv)
    segment_count = 921600 / BUFF_MAX;
    (921600 == (segment_count * segment_count))?:segment_count++;
 
-   cv::namedWindow("Video", CV_WINDOW_AUTOSIZE);
+   cv::namedWindow("Video_Client", CV_WINDOW_AUTOSIZE);
    while(1){
 	str_frame.erase(0, str_frame.length());
 	cap >> currentFrame;
 	std::cout << "rows : " << currentFrame.rows << std::endl;
 	std::cout << "cols : " << currentFrame.cols << std::endl;
-        imshow("Video", currentFrame);
+        imshow("Video_server", currentFrame);
         if(cv::waitKey(120) >= 0)
 		break;
 	str_frame = frameTostring(currentFrame);
