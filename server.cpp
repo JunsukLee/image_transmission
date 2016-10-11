@@ -16,13 +16,16 @@
 #include <curl/curl.h>
 #include <time.h>
 
+#define port       2223
+
 using namespace std;
 using namespace cv;
 
 void *text_re(void *arg);
-std::string char_double_pointer_To_string(char **data, int row);
+std::string char_double_pointer_To_string(char **data, int row, const int BUFFERSIZE);
 cv::Mat stringToMat(std::string str);
 int charToInt(char c);
+char itoa16(int num);
 
 int client_count = 0;
 int client_sock[100];
@@ -32,7 +35,7 @@ int client_sock[100];
 int main()
 {
 	int server_sock;
-	int option=1, addrsize, len, port=2223;
+	int option=1, addrsize, len;
 	int i;
 	struct sockaddr_in server_addr, client_addr;
 	struct linger ling;
@@ -80,14 +83,20 @@ int main()
 
 void *text_re(void *arg)
 {
+	const int BUFFERSIZE = 1024;
+	//const int BUFFERSIZE = 2048;
+	//const int BUFFERSIZE = 4096;
+	int checkFrame[BUFFERSIZE];
+	int checkFrame_cursor=-1;	
 	
         int *sock=(int*)arg;
-        char buffer[1024];
+        char buffer[BUFFERSIZE];	
         int len;
 	int for_i=0;
 
 	long segment_total_count;
 	long segment_count = 0;
+	int request_count  = 0;
 	int count_temp;
 	int segment_size;
 	bool front_data_check;
@@ -96,15 +105,15 @@ void *text_re(void *arg)
 
 	char **receive_buffer = new char*[1000];
 	for(int i=0; i<1000; i++){
-		receive_buffer[i] = new char[1014];
-		memset(receive_buffer[i], 0, 1014);
+		receive_buffer[i] = new char[BUFFERSIZE];
+		memset(receive_buffer[i], 0, BUFFERSIZE);
 	}
 	
-
+	int a=0;
         while(1)
         {
-		memset(buffer,0,1024);
-		len=read((int)*sock,buffer,1024);
+		memset(buffer,0,BUFFERSIZE);
+		len=read((int)*sock,buffer,BUFFERSIZE);
 		//printf("\nlen : %d\n", len);
 		//std::cout << "tol : " << buffer[0] << " " << buffer[1] << " " << buffer[2] << std::endl;
 		//std::cout << "cnt : " << buffer[3] << " " << buffer[4] << " " << buffer[5] << std::endl;
@@ -115,12 +124,12 @@ void *text_re(void *arg)
                         break;
 		}else if(len>=1){
 			//printf("client : %s\n", buffer);
+			request_count++;
 			//get Total_count
 			segment_total_count = charToInt(buffer[0])*256 + charToInt(buffer[1])*16 + charToInt(buffer[2]);
 			//printf("tol : %ld\n", segment_total_count);
 
 			//get current_count
-			segment_count++;
 			count_temp = charToInt(buffer[3])*256 + charToInt(buffer[4])*16 + charToInt(buffer[5]);
 			//printf("cnt : %ld\n", count_temp);
 
@@ -129,7 +138,11 @@ void *text_re(void *arg)
 			//get segment_size
 			segment_size = charToInt(buffer[6]) * 1000 + charToInt(buffer[7]) * 100 
 					 + charToInt(buffer[8]) * 10 + charToInt(buffer[9]);
+			//if(segment_size < 1000)			
 			//printf("segment_size : %ld\n", segment_size);
+
+
+			
 
 			//front_data_check
 			front_data_check = false;
@@ -143,7 +156,6 @@ void *text_re(void *arg)
 				}else{
 					front_data_check = false;
 					printf("front_data_check failed\n");
-
 					break;
 				}
 			}
@@ -155,35 +167,88 @@ void *text_re(void *arg)
 				for(int i=0; i<1000; i++){ // init
 					memset(receive_buffer[i], 0, 1014);
 				}
+				a = 0;
 			}
+			
+			bool bool_good_data = true;
 
-			//main_data_copy
-			for(int i=0; i < 1014 && front_data_check; i++){
-				receive_buffer[count_temp-1][i] = buffer[i+10];
-			}
 
-			if((segment_count == segment_total_count) && front_data_check){
-				char ack_buffer[] = "ack";
-				write(*sock, ack_buffer, 4);
-				printf("ack\n");
-				
-				stringToMat(char_double_pointer_To_string(receive_buffer, segment_total_count));
-				for(int i=0; i<segment_total_count; i++){				
-					memset(receive_buffer[i], 0, 1014);
+			//main_data_check
+			for(int i=0; i < segment_size-11  && front_data_check; i++){				
+				if(buffer[i+10] == NULL){					
+					bool_good_data = false;
+					break;
 				}
-				segment_count = 0;
-				segment_total_count = 0;
+			}
+		
+			//main_data_copy
+			for(int i=0; i < segment_size-11  && front_data_check && bool_good_data; i++){
+				receive_buffer[count_temp-1][i] = buffer[i+10];				
+			}
+
+						
+			if(!bool_good_data){
+				checkFrame[++checkFrame_cursor] = count_temp;
+			}
+			else{				
+				segment_count++;
+				a = a + (segment_size-10);
+
+				if((segment_count == segment_total_count) && front_data_check){
+					char ack_buffer[] = "ack";
+					write(*sock, ack_buffer, 4);
+					printf("ack\n");
+					printf("total size : %d\n", (int)segment_total_count);
+					printf("count_temp : %d\n", (int)count_temp);
+					//printf("a          : %d\n", (int)a);
+					a=0;
+				
+					stringToMat(char_double_pointer_To_string(receive_buffer, segment_total_count, BUFFERSIZE-10));
+					for(int i=0; i<segment_total_count; i++){				
+						memset(receive_buffer[i], 0, BUFFERSIZE-10);
+					}
+					memset(checkFrame, 0, BUFFERSIZE);
+					checkFrame_cursor = -1;
+					segment_count = 0;
+					segment_total_count = 0;
+				}else{
+				}
+			}
+
+			while(checkFrame_cursor >= 0 && request_count >= segment_total_count){
+				
+				char err_buffer[4];
+				err_buffer[0] = 'e';
+				err_buffer[1] = itoa16(checkFrame[checkFrame_cursor+1]/100);
+				err_buffer[2] = itoa16((checkFrame[checkFrame_cursor+1]%100)/10);
+				err_buffer[3] = itoa16(checkFrame[checkFrame_cursor+1]%10);
+
+				checkFrame[checkFrame_cursor] = 0;
+				write(*sock, err_buffer, 4);
+				
+				checkFrame_cursor--;
 			}
 		}
          }
 }
 
-std::string char_double_pointer_To_string(char **data, int row)
+std::string char_double_pointer_To_string(char **data, int row, const int BUFFERSIZE)
 {
 	string str;
+	int miss_count=0;
+
 	for(int i=0; i<row; i++){
-		str += data[i];
+		string a = data[i];
+		str += a;
+		//printf("str[%d] len : %ld\n", i, (long)a.length());
+		if(a.length() < BUFFERSIZE)
+			miss_count++;		
 	}
+
+	//printf("row : %d\n", row);
+	//printf("len : %ld\n", (long)str.length());
+	printf("miss_count : %d\n", miss_count);
+	
 	return str;
 }
 
@@ -194,9 +259,7 @@ cv::Mat stringToMat(std::string str)
 
 	std::copy(str.begin(), str.end(), std::back_inserter(in));	
 
-	memcpy(out.data, in.data(), in.size()*sizeof(uchar));
- 
-
+	//memcpy(out.data, in.data(), in.size()*sizeof(uchar));
 
 	printf("vector::data size : %ld\n", in.size());
 
@@ -241,6 +304,61 @@ int charToInt(char c)
 	}
 }
 
-
+char itoa16(int num)
+{
+	switch(num){
+	case 0:
+		return '0';
+		break;
+	case 1:
+		return '1';
+		break;
+	case 2:
+		return '2';
+		break;
+	case 3:
+		return '3';
+		break;
+	case 4:
+		return '4';
+		break;
+	case 5:
+		return '5';
+		break;
+	case 6:
+		return '6';
+		break;
+	case 7:
+		return '7';
+		break;
+	case 8:
+		return '8';
+		break;
+	case 9:
+		return '9';
+		break;
+	case 10:
+		return 'A';
+		break;
+	case 11:
+		return 'B';
+		break;
+	case 12:
+		return 'C';
+		break;
+	case 13:
+		return 'D';
+		break;
+	case 14:
+		return 'E';
+		break;
+	case 15:
+		return 'F';
+		break;
+	default:
+		return 'X';
+	}
+	return 0;
+}
 
 

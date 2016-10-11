@@ -15,8 +15,9 @@
 #include <sys/types.h>
 #include <netdb.h>
 
-#define SERVER_PORT 2223
-#define SERVER_IP   "203.230.103.47"
+#define SERVER_PORT   2223
+#define SERVER_IP     "203.230.103.47"
+#define BUFFER_SIZE   1024
 
 using namespace std;
 //using namespace cv;
@@ -39,10 +40,9 @@ public:
 private:
 	void get_currentFrame(cv::Mat frame);	
 	void socket_transmission(std::string image_String);
-	int socket_receive();
+	void socket_receive();
 	void socket_close();
 	void video_close();
-	int  charToInt(char c);
 	char itoa(int num);
 
 

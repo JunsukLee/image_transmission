@@ -67,22 +67,28 @@ void Transfer_image::socket_transmission(std::string image_String) // total00 id
 	if(!ready){
 		return;
 	}
+	
+	const int BUFFERSIZE = 1024;
+	//const int BUFFERSIZE = 2048;
+	//const int BUFFERSIZE = 4096;
+	
 
-	char buffer_data[1024];
+	char buffer_data[BUFFERSIZE];
 	int segment_Count = 0;
 	int segment_Total_Count;
 
 	// calc :: segment_Total_Count
-	segment_Total_Count = image_String.length() / 1014 - 1;
-	((image_String.length() % 1014) == 0) ? : segment_Total_Count++;
-	
+	segment_Total_Count = image_String.length() / (BUFFERSIZE-10) - 1;
+	((image_String.length() % (BUFFERSIZE-10)) == 0) ? : segment_Total_Count++;
+
+	// 1st sending	
 	for(int i=0, j=0; i < image_String.length(); )
 	{
-		memset(buffer_data, 0, 1024);
+		memset(buffer_data, 0, BUFFERSIZE);
 		segment_Count++;
 		
 		//setting 1 packet
-		for(j=8; j<1024; j++, i++)
+		for(j=10; j<BUFFERSIZE; j++, i++)
 		{
 			if(i >= image_String.length())
 				break;
@@ -101,28 +107,80 @@ void Transfer_image::socket_transmission(std::string image_String) // total00 id
 			buffer_data[3] = itoa((int)(segment_Count/16)/16);
 
 			//ADD size
-			buffer_data[6] = itoa((int)((j+1)/1000));
-			buffer_data[7] = itoa((int)(((j+1)%1000)/100));
-			buffer_data[8] = itoa((int)(((j+1)%100)/10));
-			buffer_data[9] = itoa((int)((j+1)%10));
+			buffer_data[6] = itoa((int)((j)/1000));
+			buffer_data[7] = itoa((int)(((j)%1000)/100));
+			buffer_data[8] = itoa((int)(((j)%100)/10));
+			buffer_data[9] = itoa((int)((j)%10));
 
 			for(int k=9; k>=0; k--){
 				if(buffer_data[k]=='X'){
+					//i-= (j-10);
 					break;
 				}
 				if(k==0){
 					//Write
 					write(client_socket, buffer_data, j);
+					
+					printf("data total size : %ld\n", (long)image_String.length());
+					printf("segment_Total_Count : %d\n", segment_Total_Count);
+					printf("segment_Count :       %d\n", segment_Count);
 				}					
 			}
 		}
 
 	}
-	//printf("segment_Total_Count : %d\n", segment_Total_Count);	
-	socket_receive();
+
+	// 2st sending
+	int ask;
+	while(1){
+		ask = socket_receive();
+		if(ask == 1 || ask == 2){ break; }
+		ask = ask / 10;
+		ask = ask - 1;
+		memset(buffer_data, 0, BUFFERSIZE);
+		int i;
+		for(i=10; i < BUFFERSIZE; i++){
+			if((ask*(BUFFERSIZE-10)+(i-10)) >= image_String.length())
+				break;
+			buffer_data[i] = image_String.at(ask*(BUFFERSIZE-10)+(i-10));
+		}
+
+		resetting:
+
+		//ADD total
+		buffer_data[2] = itoa((int)(segment_Total_Count%16));
+		buffer_data[1] = itoa((int)(segment_Total_Count/16)%16);
+		buffer_data[0] = itoa((int)(segment_Total_Count/16)/16);
+		
+		//ADD id
+		buffer_data[5] = itoa((int)((ask+1)%16));
+		buffer_data[4] = itoa((int)((ask+1)/16)%16);
+		buffer_data[3] = itoa((int)((ask+1)/16)/16);
+
+		//ADD size
+		buffer_data[6] = itoa((int)((i)/1000));
+		buffer_data[7] = itoa((int)(((i)%1000)/100));
+		buffer_data[8] = itoa((int)(((i)%100)/10));
+		buffer_data[9] = itoa((int)((i)%10));
+
+		for(int k=9; k>=0; k--){
+			if(buffer_data[k]=='X'){
+				goto resetting;
+				break;
+			}
+			if(k==0){
+				//Write
+				write(client_socket, buffer_data, i);
+			
+				printf("E_data total size : %ld\n", (long)image_String.length());
+				printf("E_segment_Total_Count : %d\n", segment_Total_Count);
+				printf("E_segment_Count :       %d\n", segment_Count);
+			}					
+		}
+	}
 }
 
-void Transfer_image::socket_receive()
+int Transfer_image::socket_receive()
 {
 	char buffer_receive[10];
 	int len;
@@ -133,23 +191,37 @@ void Transfer_image::socket_receive()
 		//printf("len : %d\n", len);
 
                 if(len<1){
-			return;
+			return 0;
 		}else if(len>=1){
 			printf("client : %s\n", buffer_receive);			
 			if(!strncmp(buffer_receive,"ack", 3)){
 				printf("ACK in \n");
 				ready = true;
-				return;
+				return 1;
 			}
 			if(!strncmp(buffer_receive,"neg", 3)){
 				printf("NEG in \n");
 				usleep(10000);
 				neg_status_recovery();
 				ready = true;				
-				return;
+				return 2;
 			}
+			if(buffer_receive[0] == 'e'){
+				std::cout << "error in : " << buffer_receive << std::endl;
+				int err_index;
+				err_index = charToInt(buffer_receive[1])*100;
+				err_index += charToInt(buffer_receive[2])*10;
+				err_index += charToInt(buffer_receive[3]);
+				ready = false;
+
+				//usleep(10000);				
+				return err_index*10;
+			}
+
 		}
          }
+
+	return 0;
 }
 
 void Transfer_image::neg_status_recovery()
@@ -187,6 +259,44 @@ bool Transfer_image::set_off_transmission()
 {
 	status_transmission = false;
 	return status_transmission;
+}
+
+int Transfer_image::charToInt(char c)
+{
+	switch(c){
+	case '0':
+		return 0;
+	case '1':
+		return 1;
+	case '2':
+		return 2;
+	case '3':
+		return 3;
+	case '4':
+		return 4;
+	case '5':
+		return 5;
+	case '6':
+		return 6;
+	case '7':
+		return 7;
+	case '8':
+		return 8;
+	case '9':
+		return 9;
+	case 'A':
+		return 10;
+	case 'B':
+		return 11;
+	case 'C':
+		return 12;
+	case 'D':
+		return 13;
+	case 'E':
+		return 14;
+	case 'F':
+		return 15;
+	}
 }
 
 char Transfer_image::itoa(int num)
